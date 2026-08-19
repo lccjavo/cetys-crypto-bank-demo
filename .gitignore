@@ -1,0 +1,11 @@
+node_modules/
+*.db
+*.db-*
+*.enc
+*.pem
+webhook-deposit-request.json
+webhook-hmac-secret.txt
+webhook-hmac-deposit-request.json
+webhook-hmac-forged-request.json
+.demo-key
+.env

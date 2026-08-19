@@ -1,0 +1,22 @@
+{
+  "name": "crypto-bank-demo",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Mini bank demo for cryptography, CIA, SQLite, AES-GCM, password hashing, and audit signatures.",
+  "scripts": {
+    "init": "node 01-init-db.mjs",
+    "show": "node 02-show-db.mjs",
+    "encrypt": "node 03-encrypt-db.mjs",
+    "decrypt": "node 04-decrypt-db.mjs",
+    "hash-passwords": "node 05-hash-passwords.mjs",
+    "login": "node 06-login-demo.mjs",
+    "transfer": "node 07-transfer.mjs",
+    "audit": "node 08-show-audit.mjs",
+    "verify": "node 09-verify-audit.mjs",
+    "tamper": "node 10-tamper-transfer.mjs",
+    "tamper-ciphertext": "node 11-tamper-ciphertext.mjs",
+    "webhook-hmac-sign": "node 12-webhook-hmac-sign.mjs",
+    "webhook-hmac-receive": "node 13-webhook-hmac-receive-deposit.mjs",
+    "webhook-hmac-forge": "node 14-forge-webhook-hmac.mjs"
+  }
+}
