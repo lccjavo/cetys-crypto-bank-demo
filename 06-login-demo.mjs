@@ -1,8 +1,8 @@
-import { openEncryptedDb } from './lib/db.mjs';
+import { openCipherDb } from './lib/db.mjs';
 import { verifyPassword } from './lib/crypto-utils.mjs';
 import { printTable } from './lib/money.mjs';
 
-const { db, close } = openEncryptedDb(undefined, { readOnly: true });
+const { db, close } = openCipherDb(undefined, { readOnly: true });
 
 async function login(email, password) {
   const user = db.prepare(`

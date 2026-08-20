@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { openEncryptedDb } from './lib/db.mjs';
+import { openCipherDb } from './lib/db.mjs';
 import { verifyWebhookSignatureHmac } from './lib/webhook-hmac.mjs';
 import { buildDepositPayload } from './lib/webhook.mjs';
 import { canonicalJson } from './lib/audit.mjs';
@@ -54,7 +54,7 @@ console.log(`HMAC verificado con webhook-hmac-secret.txt: ${signatureOk ? 'VALID
 if (!signatureOk) {
   console.error('\nRECHAZADO: el HMAC no corresponde a estos datos exactos con este secreto.');
   console.error('Cambiar un solo dígito de la cuenta, el monto, la operación o la firma');
-  console.error('invalida todo el mensaje. No se modifica bank.db.enc.');
+  console.error('invalida todo el mensaje. No se modifica bank-cipher.db.');
   process.exit(1);
 }
 
@@ -67,7 +67,7 @@ if (!/^ADD_FUNDS/.test(deposit.operation ?? '')) {
 
 console.log(`Operación: ${deposit.operation} | Cuenta: ${deposit.account_id} | Monto: ${centsToMoney(deposit.amount_cents, 'MXN')}`);
 
-const { db, close, persist } = openEncryptedDb();
+const { db, close, persist } = openCipherDb();
 
 function accountSummary() {
   return db.prepare(`
@@ -104,7 +104,7 @@ try {
   printTable('Después', accountSummary());
 
   persist();
-  console.log('\nCambios cifrados y guardados de nuevo en bank.db.enc.');
+  console.log('\nCambios guardados en bank-cipher.db (SQLCipher).');
 
   console.log('\nNota para clase: esta ruta usa el MISMO secreto para firmar y verificar.');
   console.log('Si ese secreto se filtra (log, repo, variable de entorno mal protegida),');

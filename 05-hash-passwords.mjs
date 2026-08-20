@@ -1,8 +1,8 @@
-import { openEncryptedDb } from './lib/db.mjs';
+import { openCipherDb } from './lib/db.mjs';
 import { hashPassword } from './lib/crypto-utils.mjs';
 import { printTable } from './lib/money.mjs';
 
-const { db, persist } = openEncryptedDb();
+const { db, persist } = openCipherDb();
 
 const users = db.prepare(`
   SELECT id, email, password_plain
@@ -58,4 +58,4 @@ const after = db.prepare(`
 printTable('Usuarios después de hashear passwords', after);
 
 persist();
-console.log('\nCambios cifrados y guardados de nuevo en bank.db.enc.');
+console.log('\nCambios guardados en bank-cipher.db (SQLCipher).');

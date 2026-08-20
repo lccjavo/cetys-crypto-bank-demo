@@ -1,4 +1,4 @@
-import { openEncryptedDb } from './lib/db.mjs';
+import { openCipherDb } from './lib/db.mjs';
 import { centsToMoney, printTable } from './lib/money.mjs';
 import { insertTransferAuditEvent } from './lib/audit.mjs';
 
@@ -11,7 +11,7 @@ if (!Number.isInteger(amountCents) || amountCents <= 0) {
   throw new Error('amountCents debe ser un entero positivo. Ejemplo: 25000 para $250.00');
 }
 
-const { db, close, persist } = openEncryptedDb();
+const { db, close, persist } = openCipherDb();
 
 function accountSummary() {
   return db.prepare(`
@@ -102,7 +102,7 @@ try {
   printTable('Después', accountSummary());
 
   persist();
-  console.log('\nCambios cifrados y guardados de nuevo en bank.db.enc.');
+  console.log('\nCambios guardados en bank-cipher.db (SQLCipher).');
 } catch (error) {
   db.exec('ROLLBACK;');
   console.error('Transferencia cancelada.');

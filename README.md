@@ -3,7 +3,8 @@
 Mini banco en SQLite + Node.js para demostrar:
 
 - Datos planos en SQLite
-- Cifrado de archivo SQLite con AES-256-GCM
+- Cifrado de archivo completo (whole-file) con AES-256-GCM, a mano, para ver IV/authTag/tamper-detection
+- Cifrado real a nivel de página con SQLCipher v4 (transparente para SQL, queryable en vivo con el driver correcto)
 - Password hashing con scrypt + salt (incluye 4 usuarios con la misma contraseña)
 - Transferencias usando centavos enteros
 - Integridad lógica mediante transacciones SQL
@@ -16,43 +17,133 @@ Mini banco en SQLite + Node.js para demostrar:
 ## Requisitos
 
 - Node.js 22.13+ recomendado, porque usamos `node:sqlite`.
-- No requiere paquetes npm externos.
+- `npm install` (solo trae `better-sqlite3-multiple-ciphers`, para el cifrado SQLCipher real de `bank-cipher.db`).
 
 Verifica:
 
 ```bash
 node --version
+npm install
 ```
+
+## Tres archivos, tres modelos distintos
+
+La demo genera tres `.db` que representan tres formas distintas de manejar
+(o no) el cifrado -- vale la pena tenerlos claros antes de seguir:
+
+| Archivo | ¿Formato SQLite? | ¿Quién lo puede abrir? |
+|---|---|---|
+| `bank.db` | Sí, header `SQLite format 3\0` intacto | Cualquier herramienta SQLite genérica: `sqlite3`, el driver default de DBeaver, `node:sqlite`. Cero configuración. |
+| `bank-cipher.db` | Sí *por dentro* (páginas B-tree normales), pero cada página -- incluido el header -- está cifrada. `file bank-cipher.db` dice `data`, igual que el blob AES-GCM. | Solo un driver que entienda el cifrado (SQLCipher/SQLite3MultipleCiphers): `better-sqlite3-multiple-ciphers` en Node, o el driver `sqlite-jdbc-crypt` en DBeaver -- ver más abajo. Con la key correcta, se comporta como un SQLite normal: `SELECT`, índices, todo transparente. |
+| `bank.db.enc` | No, para nada. Es el archivo completo (con todo y su header SQLite) pasado una sola vez por AES-256-GCM: `[IV de 12 bytes][authTag de 16 bytes][ciphertext]`. | Ninguna herramienta SQLite, nunca, directamente -- no existe un "driver SQLite con soporte AES-GCM" porque esto no es cifrado a nivel de base de datos, es cifrado de archivo por encima. Hay que descifrarlo primero a un archivo `.db` nuevo (`04-decrypt-db.mjs`) antes de que cualquier cosa lo pueda leer. |
+
+En corto: `bank-cipher.db` sigue siendo SQLite (cifrado transparente, queryable en vivo si tienes la llave); `bank.db.enc` deja de ser SQLite por completo hasta que lo descifras a un archivo aparte.
+
+## Secretos: `.env`
+
+Los scripts leen sus llaves de `.env` (gitignored, nunca se sube al repo) en
+vez de exportarlas a mano en cada terminal. No hace falta crearlo tú mismo:
+`node 01-init-db.mjs` lo genera solo (con `DB_SQLite_TEST_KEY` y
+`SQLCIPHER_PASSPHRASE` nuevos) la primera vez que corres la demo, y no lo
+vuelve a tocar en corridas siguientes -- así una clonación nueva del repo
+queda lista con solo `npm install && node 01-init-db.mjs`.
+
+Si de todos modos quieres fijar tú los valores (por ejemplo para compartir
+las mismas llaves con tu equipo por un canal fuera de git), créalo antes de
+correr `01-init-db.mjs`:
+
+```bash
+cp .env.example .env
+
+# DB_SQLite_TEST_KEY (AES-256-GCM, whole-file, scripts 03/04/11)
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# SQLCIPHER_PASSPHRASE (bank-cipher.db, scripts 04-init-cipher-db.mjs y 05-16)
+node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))"
+```
+
+## Ver bank-cipher.db en DBeaver
+
+`bank-cipher.db` (creado por `node 04-init-cipher-db.mjs`) es SQLite cifrado
+de verdad a nivel de página (SQLCipher v4). El driver JDBC que trae DBeaver
+por defecto (Xerial) no sabe leer eso -- no tiene header "SQLite format 3",
+`file bank-cipher.db` dice `data`. Hace falta el driver
+[sqlite-jdbc-crypt](https://github.com/Willena/sqlite-jdbc-crypt), un fork
+del driver estándar con soporte SQLCipher/SQLite3MultipleCiphers.
+
+**1. Descargar el driver** (ya está en `drivers/sqlite-jdbc-crypt.jar`, gitignored -- si no está, o para otra máquina):
+
+```bash
+mkdir -p drivers
+curl -sL "https://github.com/Willena/sqlite-jdbc-crypt/releases/download/3.53.4.0/sqlite-jdbc-3.53.4.0.jar" \
+  -o drivers/sqlite-jdbc-crypt.jar
+```
+
+Usa el jar simple (`sqlite-jdbc-X.jar`), no `-natives-all.jar` -- ese último
+solo trae binarios nativos, sin las clases Java del driver.
+
+**2. Registrar el driver en DBeaver:**
+
+- Database → Driver Manager → New
+- Driver Name: `SQLite (SQLCipher)`
+- Class Name: `org.sqlite.JDBC`
+- URL Template: `jdbc:sqlite:{file}`
+- Pestaña Libraries → Add File → selecciona `drivers/sqlite-jdbc-crypt.jar`
+- Find Class (debe encontrar `org.sqlite.JDBC`) → OK
+
+**3. Crear la conexión:**
+
+- Database → New Database Connection → elige el driver `SQLite (SQLCipher)`
+- Path: la ruta absoluta a `bank-cipher.db`
+- Pestaña Driver properties → agrega estas tres (Add New Property):
+  - `cipher` = `sqlcipher`
+  - `legacy` = `4`
+  - `key` = el valor de `SQLCIPHER_PASSPHRASE` en tu `.env`
+- Test Connection → Finish
+
+Con esas tres propiedades DBeaver reproduce exactamente el mismo preset
+(`cipher='sqlcipher'`, `legacy=4`, `key=...`) que usa `lib/db.mjs` al abrir el
+archivo -- verificado en esta sesión con un cliente JDBC real antes de
+documentarlo aquí. Sin ellas, o con la passphrase equivocada, DBeaver falla
+con `[SQLITE_NOTADB] file is not a database`, igual que `sqlite3` por CLI.
 
 ## Demo completa
 
+`node 01-init-db.mjs` es el único punto de entrada: genera `.env` si hace
+falta (ver arriba) y encadena `03-encrypt-db.mjs` +
+`04-init-cipher-db.mjs` automáticamente, así que al terminar ya existen
+`bank.db`, `bank.db.enc` y `bank-cipher.db` los tres. Los pasos siguientes
+son para *inspeccionar* cada uno a mano, no para crearlos.
+
 ```bash
-node 01-init-db.mjs
+node 01-init-db.mjs   # crea bank.db, bank.db.enc y bank-cipher.db (y .env si no existía)
 node 02-show-db.mjs
 
-export DB_SQLite_TEST_KEY=$(node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
-printenv DB_SQLite_TEST_KEY
-node 03-encrypt-db.mjs
-sqlite3 bank.db.enc "SELECT * FROM users;" # debe fallar
+sqlite3 bank.db.enc "SELECT * FROM users;" # debe fallar -- es un blob AES-GCM, no SQLite
 node 04-query-encrypted-db.mjs "SELECT * FROM users"
 node 04-decrypt-db.mjs
 node 02-show-db.mjs bank-restored.db
 
-# A partir de aquí, todos los scripts operan sobre bank.db.enc:
-# descifran a un archivo temporal, hacen su trabajo, y si hay
-# cambios los vuelven a cifrar (nuevo IV) y persisten en bank.db.enc.
-# bank.db / bank-restored.db quedan solo como snapshots de inspección manual.
-# DB_SQLite_TEST_KEY debe seguir exportada en la sesión para todos
-# los pasos siguientes.
+# bank.db.enc es un blob AES-GCM de archivo completo (whole-file), solo para
+# los scripts 03/04/11 -- sirve para ver IV/authTag/tamper-detection a mano.
+# bank.db / bank-restored.db son snapshots de inspección manual.
 
-node 05-hash-passwords.mjs   # hashea passwords y persiste en bank.db.enc
-node 06-login-demo.mjs       # lee bank.db.enc (solo lectura)
+# A partir de aquí, los scripts 05-16 operan sobre bank-cipher.db: un SQLite
+# cifrado de verdad a nivel de página (SQLCipher v4, vía
+# better-sqlite3-multiple-ciphers), sin archivo temporal -- se lee/escribe
+# directo. Se puede abrir en vivo con DBeaver o DB Browser for SQLite usando
+# SQLCIPHER_PASSPHRASE (ver "Ver bank-cipher.db en DBeaver" más abajo).
+# (Ya existe, creado por 01-init-db.mjs -- vuelve a correr
+# node 04-init-cipher-db.mjs solo si quieres resetearlo sin repetir todo 01.)
 
-node 07-transfer.mjs         # transfiere y persiste en bank.db.enc
-node 08-show-audit.mjs       # lee bank.db.enc (solo lectura)
-node 09-verify-audit.mjs     # lee bank.db.enc (solo lectura)
+node 05-hash-passwords.mjs   # hashea passwords y persiste en bank-cipher.db
+node 06-login-demo.mjs       # lee bank-cipher.db (solo lectura)
 
-node 10-tamper-transfer.mjs  # manipula un transfer y persiste en bank.db.enc
+node 07-transfer.mjs         # transfiere y persiste en bank-cipher.db
+node 08-show-audit.mjs       # lee bank-cipher.db (solo lectura)
+node 09-verify-audit.mjs     # lee bank-cipher.db (solo lectura)
+
+node 10-tamper-transfer.mjs  # manipula un transfer y persiste en bank-cipher.db
 node 09-verify-audit.mjs     # debe detectar manipulación
 
 node 12-webhook-hmac-sign.mjs            # simula a un proveedor externo firmando un depósito con HMAC + secreto compartido
@@ -120,7 +211,7 @@ usan la misma contraseña (o las buscaría en una rainbow table).
 
 Saldos iniciales tras `01-init-db.mjs`: Ana $1,000.00 (cuenta 1), Carlos $500.00 (cuenta 2), Admin $0.00 (cuenta 3).
 
-### Transferencias (cada una persiste en `bank.db.enc`)
+### Transferencias (cada una persiste en `bank-cipher.db`)
 
 ```bash
 node 07-transfer.mjs 1 2 25000      # Ana -> Carlos $250.00   => Ana $750 / Carlos $750 / Admin $0
@@ -129,7 +220,7 @@ node 07-transfer.mjs 1 3 50000      # Ana -> Admin $500.00    => Ana $250 / Carl
 
 node 07-transfer.mjs 2 1 999999999  # falla a propósito: "Saldo insuficiente."
                                      # muestra que la transacción hace ROLLBACK limpio
-                                     # (no se reescribe bank.db.enc si falla)
+                                     # (no se reescribe bank-cipher.db si falla)
 ```
 
 Revisar el estado en cualquier momento:
@@ -144,7 +235,7 @@ node 09-verify-audit.mjs            # => VALID ✓
 **A) Manipulación a nivel de fila** (editando el SQLite descifrado directamente, sin pasar por la lógica de la app):
 
 ```bash
-node 10-tamper-transfer.mjs 2 500000   # reescribe el monto del transfer #2 a $5,000.00 y lo persiste en bank.db.enc
+node 10-tamper-transfer.mjs 2 500000   # reescribe el monto del transfer #2 a $5,000.00 y lo persiste en bank-cipher.db
 node 09-verify-audit.mjs               # => COMPROMISED ✗, señala exactamente el evento #2
                                         # (payload firmado dice $100 vs $5,000 en la DB), los eventos #1 y #3 siguen ✓
 ```
@@ -242,7 +333,7 @@ HMAC verificado con webhook-hmac-secret.txt: INVALIDO ✗
 
 RECHAZADO: el HMAC no corresponde a estos datos exactos con este secreto.
 Cambiar un solo dígito de la cuenta, el monto, la operación o la firma
-invalida todo el mensaje. No se modifica bank.db.enc.
+invalida todo el mensaje. No se modifica bank-cipher.db.
 ```
 
 También funciona editando `webhook-hmac-deposit-request.json` a mano (dentro
@@ -399,7 +490,7 @@ Firma verificada con webhook-public.pem: INVALIDA ✗
 
 RECHAZADO: la firma no corresponde a estos datos exactos.
 Cambiar un solo dígito de la cuenta, el monto, la operación o la
-firma invalida todo el mensaje. No se modifica bank.db.enc.
+firma invalida todo el mensaje. No se modifica bank-cipher.db.
 ```
 
 También funciona editando `webhook-deposit-request.json` a mano (dentro del
@@ -409,7 +500,7 @@ otro valor) y corriendo `node 16-webhook-receive-deposit.mjs` sin argumentos —
 
 ### Reiniciar la demo
 
-No existe un script para "desmanipular" (es intencional: la manipulación debe ser irreversible sin dejar evidencia). Para volver a un estado limpio, vuelve a correr el bloque de `Demo completa` desde el inicio; `01-init-db.mjs` borra `bank.db`, `bank.db.enc` y las llaves de firma antes de regenerar todo.
+No existe un script para "desmanipular" (es intencional: la manipulación debe ser irreversible sin dejar evidencia). Para volver a un estado limpio, corre `node 01-init-db.mjs`: borra `bank.db`, `bank.db.enc`, `bank-cipher.db` y las llaves de firma, y regenera los tres archivos de nuevo (encadena `03-encrypt-db.mjs` y `04-init-cipher-db.mjs` solo).
 
 ## Notas para clase
 

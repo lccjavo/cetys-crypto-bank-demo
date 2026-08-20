@@ -1,11 +1,11 @@
-import { openEncryptedDb } from './lib/db.mjs';
+import { openCipherDb } from './lib/db.mjs';
 import {
   GENESIS_HASH,
   buildEventHash,
   verifyEventSignature
 } from './lib/audit.mjs';
 
-const { db, close } = openEncryptedDb(undefined, { readOnly: true });
+const { db, close } = openCipherDb(undefined, { readOnly: true });
 
 const logs = db.prepare(`
   SELECT *

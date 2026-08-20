@@ -8,6 +8,7 @@
     "show": "node 02-show-db.mjs",
     "encrypt": "node 03-encrypt-db.mjs",
     "decrypt": "node 04-decrypt-db.mjs",
+    "init-cipher": "node 04-init-cipher-db.mjs",
     "hash-passwords": "node 05-hash-passwords.mjs",
     "login": "node 06-login-demo.mjs",
     "transfer": "node 07-transfer.mjs",
@@ -18,5 +19,8 @@
     "webhook-hmac-sign": "node 12-webhook-hmac-sign.mjs",
     "webhook-hmac-receive": "node 13-webhook-hmac-receive-deposit.mjs",
     "webhook-hmac-forge": "node 14-forge-webhook-hmac.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3-multiple-ciphers": "^13.0.3"
   }
 }

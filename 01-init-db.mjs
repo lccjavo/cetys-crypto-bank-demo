@@ -1,11 +1,30 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { openDb } from './lib/db.mjs';
 import { createSigningKeysIfMissing } from './lib/audit.mjs';
 import { centsToMoney, printTable } from './lib/money.mjs';
 
+// Punto de entrada único: si no existe .env, lo genera con llaves nuevas
+// (no se sube al repo -- ver .gitignore / .env.example). Así un clone nuevo
+// solo necesita "npm install && node 01-init-db.mjs" para quedar listo.
+if (!fs.existsSync('.env')) {
+  const dbSqliteTestKey = crypto.randomBytes(32).toString('hex');
+  const sqlcipherPassphrase = crypto.randomBytes(24).toString('base64url');
+
+  fs.writeFileSync(
+    '.env',
+    `DB_SQLite_TEST_KEY=${dbSqliteTestKey}\nSQLCIPHER_PASSPHRASE=${sqlcipherPassphrase}\n`,
+    { mode: 0o600 }
+  );
+
+  console.log('.env creado con llaves nuevas (DB_SQLite_TEST_KEY, SQLCIPHER_PASSPHRASE).');
+}
+
 if (fs.existsSync('bank.db')) fs.rmSync('bank.db');
 if (fs.existsSync('bank.db.enc')) fs.rmSync('bank.db.enc');
 if (fs.existsSync('bank-restored.db')) fs.rmSync('bank-restored.db');
+if (fs.existsSync('bank-cipher.db')) fs.rmSync('bank-cipher.db');
 if (fs.existsSync('bank-private.pem')) fs.rmSync('bank-private.pem');
 if (fs.existsSync('bank-public.pem')) fs.rmSync('bank-public.pem');
 if (fs.existsSync('webhook-deposit-request.json')) fs.rmSync('webhook-deposit-request.json');
@@ -120,10 +139,17 @@ const accounts = db.prepare(`
 printTable('Usuarios iniciales: passwords en texto plano (mal diseño intencional)', users);
 printTable('Cuentas iniciales', accounts);
 
-console.log('\nArchivos generados:');
-console.log('- bank.db');
-console.log('- bank-private.pem');
-console.log('- bank-public.pem');
-console.log('\nSiguiente paso: node 02-show-db.mjs');
-
 db.close();
+
+// bank.db ya está en disco -- ahora generamos las dos versiones cifradas a
+// partir de ella, reusando los scripts de demo tal cual (para que también
+// se puedan seguir corriendo sueltos, uno por uno, durante la clase).
+execFileSync('node', ['03-encrypt-db.mjs'], { stdio: 'inherit' });
+execFileSync('node', ['04-init-cipher-db.mjs'], { stdio: 'inherit' });
+
+console.log('\nArchivos generados:');
+console.log('- bank.db (plano)');
+console.log('- bank.db.enc (AES-256-GCM, whole-file)');
+console.log('- bank-cipher.db (SQLCipher v4, real)');
+console.log('- bank-private.pem / bank-public.pem');
+console.log('\nSiguiente paso: node 02-show-db.mjs');

@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { openEncryptedDb } from './lib/db.mjs';
+import { openCipherDb } from './lib/db.mjs';
 import { verifyWebhookSignature, buildDepositPayload } from './lib/webhook.mjs';
 import { canonicalJson } from './lib/audit.mjs';
 import { centsToMoney, printTable } from './lib/money.mjs';
@@ -52,7 +52,7 @@ console.log(`Firma verificada con webhook-public.pem: ${signatureOk ? 'VALIDA �
 if (!signatureOk) {
   console.error('\nRECHAZADO: la firma no corresponde a estos datos exactos.');
   console.error('Cambiar un solo dígito de la cuenta, el monto, la operación o la');
-  console.error('firma invalida todo el mensaje. No se modifica bank.db.enc.');
+  console.error('firma invalida todo el mensaje. No se modifica bank-cipher.db.');
   process.exit(1);
 }
 
@@ -65,7 +65,7 @@ if (!/^ADD_FUNDS/.test(deposit.operation ?? '')) {
 
 console.log(`Operación: ${deposit.operation} | Cuenta: ${deposit.account_id} | Monto: ${centsToMoney(deposit.amount_cents, 'MXN')}`);
 
-const { db, close, persist } = openEncryptedDb();
+const { db, close, persist } = openCipherDb();
 
 function accountSummary() {
   return db.prepare(`
@@ -102,7 +102,7 @@ try {
   printTable('Después', accountSummary());
 
   persist();
-  console.log('\nCambios cifrados y guardados de nuevo en bank.db.enc.');
+  console.log('\nCambios guardados en bank-cipher.db (SQLCipher).');
 
   console.log('\nNota para clase: este depósito actualiza el saldo pero NO se');
   console.log('encadena en activity_log (a diferencia de las transferencias).');

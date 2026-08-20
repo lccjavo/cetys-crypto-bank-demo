@@ -1,6 +1,6 @@
-import { openEncryptedDb } from './lib/db.mjs';
+import { openCipherDb } from './lib/db.mjs';
 
-const { db, close, persist } = openEncryptedDb();
+const { db, close, persist } = openCipherDb();
 
 const targetTransferId = Number(process.argv[2] ?? 1);
 const newAmountCents = Number(process.argv[3] ?? 900000); // $9,000.00
@@ -34,5 +34,5 @@ console.log('Antes:', before);
 console.log('Después:', after);
 
 persist();
-console.log('\nManipulación guardada (re-cifrada) en bank.db.enc.');
+console.log('\nManipulación guardada en bank-cipher.db (SQLCipher).');
 console.log('Ahora ejecuta: node 09-verify-audit.mjs');
